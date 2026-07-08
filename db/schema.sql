@@ -1,190 +1,130 @@
-CREATE TABLE companies (
-    company_id INTEGER PRIMARY KEY,
-    ticker TEXT UNIQUE NOT NULL,
-    company_name TEXT NOT NULL,
-    sector_id INTEGER
+CREATE TABLE companies(
+    id TEXT PRIMARY KEY,
+    company_logo TEXT,
+    chart_link TEXT,
+    company_name TEXT,
+    about_company TEXT,
+    website TEXT,
+    nse_profile TEXT,
+    bse_profile TEXT,
+    face_value INTEGER,
+    book_value INTEGER,
+    roe_percentage REAL,
+    roce_percentage REAL
 );
 
-CREATE TABLE profitandloss (
-    company_id INTEGER,
-    year INTEGER,
+CREATE TABLE profitandloss(
+    id INTEGER,
+    company_id TEXT,
+    year DATE, 
     sales REAL,
+    expenses REAL,
     operating_profit REAL,
+    opm_percentage REAL,
+    other_income REAL,
+    interest REAL,
+    depreciation REAL,
+    profit_before_tax REAL,
+    tax_percentage REAL,
     net_profit REAL,
+    eps REAL,
+    dividend_payout REAL,
 
-    PRIMARY KEY (company_id, year),
 
+    
     FOREIGN KEY(company_id)
-    REFERENCES companies(company_id)
+    REFERENCES companies(id)
 );
 
-CREATE TABLE balancesheet (
+DELETE FROM profitandloss 
+WHERE company_id NOT IN (SELECT id FROM companies);
 
-    company_id INTEGER,
+CREATE TABLE balancesheet(
 
-    year INTEGER,
-
+    id	INTEGER,
+    company_id TEXT,
+    year DATE,
+    equity_capital REAL,
+    reserves REAL,
+    borrowings REAL,
+    other_liabilities REAL,
+    total_liabilities REAL,
+    fixed_assets REAL,
+    cwip REAL,
+    investments REAL,
+    other_asset REAL,
     total_assets REAL,
 
-    total_liabilities REAL,
-
-    shareholders_equity REAL,
-
-    PRIMARY KEY(company_id, year),
 
     FOREIGN KEY(company_id)
 
-    REFERENCES companies(company_id)
-
+    REFERENCES companies(id)
 );
+
+DELETE FROM balancesheet 
+WHERE company_id NOT IN (SELECT id FROM companies);
 
 CREATE TABLE cashflow (
 
-    company_id INTEGER,
-
-    year INTEGER,
-
-    operating_cashflow REAL,
-
-    investing_cashflow REAL,
-
-    financing_cashflow REAL,
-
-    PRIMARY KEY(company_id, year),
+    id INTEGER,
+    company_id TEXT,
+    year DATE
+    operating_activity REAL
+    investing_activity REAL,
+    financing_activity REAL,
+    net_cash_flow REAL,
 
     FOREIGN KEY(company_id)
 
-    REFERENCES companies(company_id)
-
+    REFERENCES companies(id)
 );
+
+DELETE FROM cashflow 
+WHERE company_id NOT IN (SELECT id FROM companies);
+
 
 CREATE TABLE analysis (
 
-    company_id INTEGER PRIMARY KEY,
-
-    analysis TEXT,
-
+    id INTEGER,
+    company_id TEXT,
+    compounded_sales_growth TEXT,
+    compounded_profit_growth TEXT,
+    stock_price_cagr TEXT,
+    roe TEXT,
     FOREIGN KEY(company_id)
 
-    REFERENCES companies(company_id)
-
+    REFERENCES companies(id)
 );
+
+DELETE FROM analysis 
+WHERE company_id NOT IN (SELECT id FROM companies);
 
 CREATE TABLE documents (
 
-    company_id INTEGER PRIMARY KEY,
-
-    annual_report TEXT,
-
-    concall_notes TEXT,
+    id INTEGER,
+    company_id TEXT,
+    Year YEAR,
+    Annual_Report TEXT,
 
     FOREIGN KEY(company_id)
 
-    REFERENCES companies(company_id)
-
+    REFERENCES companies(id)
 );
+
+DELETE FROM documents 
+WHERE company_id NOT IN (SELECT id FROM companies);
 
 CREATE TABLE prosandcons (
 
-    company_id INTEGER PRIMARY KEY,
-
+    id INTEGER,
+    company_id TEXT,
     pros TEXT,
-
     cons TEXT,
 
     FOREIGN KEY(company_id)
 
-    REFERENCES companies(company_id)
-
+    REFERENCES companies(id)
 );
 
-CREATE TABLE sectors (
-
-    sector_id INTEGER PRIMARY KEY,
-
-    sector_name TEXT
-
-);
-
-CREATE TABLE stock_prices (
-
-    company_id INTEGER,
-
-    trade_date DATE,
-
-    open REAL,
-
-    high REAL,
-
-    low REAL,
-
-    close REAL,
-
-    volume INTEGER,
-
-    PRIMARY KEY(company_id, trade_date),
-
-    FOREIGN KEY(company_id)
-
-    REFERENCES companies(company_id)
-
-);
-
-CREATE TABLE financial_ratios (
-
-    company_id INTEGER,
-
-    year INTEGER,
-
-    roe REAL,
-
-    roce REAL,
-
-    pe REAL,
-
-    pb REAL,
-
-    debt_equity REAL,
-
-    PRIMARY KEY(company_id, year),
-
-    FOREIGN KEY(company_id)
-
-    REFERENCES companies(company_id)
-
-);
-
-CREATE TABLE peer_groups (
-
-    company_id INTEGER,
-
-    peer_company_id INTEGER,
-
-    PRIMARY KEY(company_id, peer_company_id),
-
-    FOREIGN KEY(company_id)
-
-    REFERENCES companies(company_id),
-
-    FOREIGN KEY(peer_company_id)
-
-    REFERENCES companies(company_id)
-
-);
-
-import sqlite3
-
-connection = sqlite3.connect("db/nifty100.db")
-
-connection.execute("PRAGMA foreign_keys = ON;")
-
-with open("db/schema.sql", "r") as f:
-
-    connection.executescript(f.read())
-
-connection.commit()
-
-connection.close()
-
-print("Database Created Successfully")
-
+DELETE FROM prosandcons 
+WHERE company_id NOT IN (SELECT id FROM companies);
