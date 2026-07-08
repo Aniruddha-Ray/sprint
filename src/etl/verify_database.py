@@ -1,7 +1,7 @@
 import sqlite3
 import pandas as pd
 
-conn = sqlite3.connect("db/nifty100.db")
+conn = sqlite3.connect("C:\\Users\\Asus\\OneDrive\\Desktop\\Bluestock_intern\\Bluestock-sprint-1\\db\\nifty100.db")
 
 tables = [
     "companies",
@@ -10,11 +10,7 @@ tables = [
     "cashflow",
     "analysis",
     "documents",
-    "prosandcons",
-    "sectors",
-    "stock_prices",
-    "financial_ratios",
-    "peer_groups"
+    "prosandcons"
 ]
 
 for table in tables:
@@ -66,7 +62,7 @@ for table in tables:
 summary = pd.DataFrame(summary)
 
 summary.to_csv(
-    "output/database_summary.csv",
+    "C:\\Users\\Asus\\OneDrive\\Desktop\\Bluestock_intern\\Bluestock-sprint-1\\output\\database_summary.csv",
     index=False
 )
 

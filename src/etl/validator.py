@@ -1,6 +1,5 @@
 import pandas as pd
 
-
 class DataValidator:
 
     def __init__(self):
@@ -32,7 +31,7 @@ class DataValidator:
 
     def check_company_year(self, df):
 
-        duplicates = df[df.duplicated(["company_id", "year"])]
+        duplicates = df[df.duplicated(["id", "year"])]
 
         for idx in duplicates.index:
             self.add_failure(
@@ -44,9 +43,9 @@ class DataValidator:
 
     def check_foreign_key(self, child_df, parent_df):
 
-        parent = set(parent_df["company_id"])
+        parent = set(parent_df["id"])
 
-        for idx, value in enumerate(child_df["company_id"]):
+        for idx, value in enumerate(child_df["id"]):
 
             if value not in parent:
 
@@ -65,7 +64,7 @@ class DataValidator:
 
             liabilities = row["total_liabilities"]
 
-            equity = row["shareholders_equity"]
+            equity = row["equity_capital"]
 
             if pd.isna(assets) or pd.isna(liabilities) or pd.isna(equity):
                 continue
@@ -100,13 +99,17 @@ from config import (
     BALANCE_FILE
 )
 
-companies_df = load_excel(COMPANIES_FILE)
-profit_df = load_excel(PROFIT_FILE)
-balance_df = load_excel(BALANCE_FILE)
-   
+companies_df = load_excel(COMPANIES_FILE, header =1)
+profit_df = load_excel(PROFIT_FILE, header =1)
+balance_df = load_excel(BALANCE_FILE, header =1)
+
+print("Companies_df:\n", companies_df.head())
+print("Profit_df:\n", profit_df.head())
+print("Balance_df:\n", balance_df.head())
+
 validator = DataValidator()
 
-validator.check_primary_key(companies_df, "company_id")
+validator.check_primary_key(companies_df, "id")
 
 validator.check_company_year(profit_df)
 
@@ -120,7 +123,7 @@ validator.check_balance_sheet(balance_df)
 validator.check_positive_sales(profit_df)
 
 validator.save_report(
-    "output/validation_failures.csv"
+    "C:\\Users\\Asus\\OneDrive\\Desktop\\Bluestock_intern\\Bluestock-sprint-1\\output\\validation_failures.csv"
 )
 
 print("Validation Complete")

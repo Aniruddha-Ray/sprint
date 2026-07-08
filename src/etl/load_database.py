@@ -3,7 +3,7 @@ import pandas as pd
 
 from loader import load_excel
 
-conn = sqlite3.connect("db/nifty100.db")
+conn = sqlite3.connect("C:\\Users\\Asus\\OneDrive\\Desktop\\Bluestock_intern\\Bluestock-sprint-1\\db\\nifty100.db")
 
 conn.execute("PRAGMA foreign_keys=ON")
 
@@ -28,31 +28,24 @@ def load_table(file_path, table_name):
 
     print(f"{table_name} Loaded ({len(df)} rows)")
 
-    load_table("data/raw/companies.xlsx","companies")
+load_table("C:\\Users\\Asus\\OneDrive\\Desktop\\Bluestock_intern\\Bluestock-sprint-1\\data\\raw\\companies.xlsx","companies")
 
-load_table("data/raw/profitandloss.xlsx","profitandloss")
+load_table("C:\\Users\\Asus\\OneDrive\\Desktop\\Bluestock_intern\\Bluestock-sprint-1\\data\\raw\\profitandloss.xlsx","profitandloss")
 
-load_table("data/raw/balancesheet.xlsx","balancesheet")
+load_table("C:\\Users\\Asus\\OneDrive\\Desktop\\Bluestock_intern\\Bluestock-sprint-1\\data\\raw\\balancesheet.xlsx","balancesheet")
 
-load_table("data/raw/cashflow.xlsx","cashflow")
+load_table("C:\\Users\\Asus\\OneDrive\\Desktop\\Bluestock_intern\\Bluestock-sprint-1\\data\\raw\\cashflow.xlsx","cashflow")
 
-load_table("data/raw/analysis.xlsx","analysis")
+load_table("C:\\Users\\Asus\\OneDrive\\Desktop\\Bluestock_intern\\Bluestock-sprint-1\\data\\raw\\analysis.xlsx","analysis")
 
-load_table("data/raw/documents.xlsx","documents")
+load_table("C:\\Users\\Asus\\OneDrive\\Desktop\\Bluestock_intern\\Bluestock-sprint-1\\data\\raw\\documents.xlsx","documents")
 
-load_table("data/raw/prosandcons.xlsx","prosandcons")
+load_table("C:\\Users\\Asus\\OneDrive\\Desktop\\Bluestock_intern\\Bluestock-sprint-1\\data\\raw\\prosandcons.xlsx","prosandcons")
 
-load_table("data/raw/sectors.xlsx","sectors")
-
-load_table("data/raw/stock_prices.xlsx","stock_prices")
-
-load_table("data/raw/financial_ratios.xlsx","financial_ratios")
-
-load_table("data/raw/peer_groups.xlsx","peer_groups")
 
 
 pd.DataFrame(audit).to_csv(
-    "output/load_audit.csv",
+    "C:\\Users\\Asus\\OneDrive\\Desktop\\Bluestock_intern\\Bluestock-sprint-1\\output\\load_audit.csv",
     index=False
 )
 

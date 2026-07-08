@@ -1,12 +1,13 @@
+
 import pandas as pd
 
-from .normaliser import (
-    normalize_columns,
+from normaliser import (
+    normalize_columns
 )
 
-def load_excel(path):
+def load_excel(path, header=1):
 
-    df = pd.read_excel(path)
+    df = pd.read_excel(path, header = header)
 
     df = normalize_columns(df)
 
@@ -15,7 +16,7 @@ def load_excel(path):
 
 if __name__ == "__main__":
 
-    df = load_excel("data/raw/company.xlsx")
+    df = load_excel(r"C:\\Users\\Asus\\OneDrive\\Desktop\\Bluestock_intern\\Bluestock-sprint-1\\data\\raw\\companies.xlsx")
 
     df = df.fillna("")
 
