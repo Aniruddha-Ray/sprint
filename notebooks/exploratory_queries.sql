@@ -25,7 +25,7 @@ FROM profitandloss
 ORDER BY sales DESC
 LIMIT 10;
 
-SELECT AVG(roe) AS average_roe
+SELECT AVG(return_on_equity_pct) AS average_roe
 FROM financial_ratios;
 
 SELECT
@@ -37,7 +37,7 @@ GROUP BY company_id;
 SELECT c.company_name
 FROM companies c
 LEFT JOIN profitandloss p
-ON c.company_id=p.company_id
+ON c.id=p.company_id
 WHERE p.company_id IS NULL;
 
 SELECT COUNT(*) FROM companies;
@@ -59,5 +59,5 @@ LIMIT 10;
 
 SELECT *
 FROM financial_ratios
-ORDER BY debt_equity DESC
+ORDER BY debt_to_equity DESC
 LIMIT 10;

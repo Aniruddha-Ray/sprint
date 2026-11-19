@@ -1,3 +1,4 @@
+from src.etl.config import DATABASE
 import sqlite3
 import pandas as pd
 
@@ -10,7 +11,7 @@ class CompanyClustering:
     def __init__(self):
 
         self.conn = sqlite3.connect(
-            "db/nifty100.db"
+            str(DATABASE)
         )
 
     def load(self):

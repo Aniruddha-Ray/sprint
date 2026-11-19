@@ -1,3 +1,4 @@
+from src.etl.config import DATABASE
 import os
 import sqlite3
 
@@ -15,7 +16,7 @@ class SectorReport:
 
     def __init__(self):
 
-        self.conn = sqlite3.connect("db/nifty100.db")
+        self.conn = sqlite3.connect(str(DATABASE))
 
         os.makedirs(
             "reports/sector",
@@ -30,7 +31,7 @@ class SectorReport:
         )
 
         ratios = pd.read_sql(
-            "SELECT * FROM financial_ratios",
+            "SELECT * FROM financial_ratios f WHERE year = (SELECT MAX(year) FROM financial_ratios g WHERE g.company_id = f.company_id)",  # latest year
             self.conn
         )
 

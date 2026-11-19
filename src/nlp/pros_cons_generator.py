@@ -1,3 +1,4 @@
+from src.etl.config import DATABASE
 import sqlite3
 import pandas as pd
 
@@ -7,7 +8,7 @@ class ProsConsGenerator:
     def __init__(self):
 
         self.conn = sqlite3.connect(
-            "db/nifty100.db"
+            str(DATABASE)
         )
 
     def generate(self):

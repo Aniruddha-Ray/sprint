@@ -1,43 +1,61 @@
+"""Financial ratio engine: builds the financial_ratios table.
+
+Run from the repository root, after the ETL load:
+
+    python -m src.analytics.ratio_engine
+"""
+
 from __future__ import annotations
 
-import sqlite3
 import logging
-from pathlib import Path
-from typing import Dict
+import sqlite3
 
 import pandas as pd
 
-from analytics.ratios import *
-from analytics.cagr import *
-from analytics.cashflow_kpis import *
-
-DATABASE_PATH = Path("db/nifty100.db")
-
-OUTPUT_DIR = Path("output")
-
-OUTPUT_DIR.mkdir(exist_ok=True)
-
-EDGE_CASE_LOG = OUTPUT_DIR / "ratio_edge_cases.log"
-
-logging.basicConfig(
-
-    filename=EDGE_CASE_LOG,
-
-    level=logging.INFO,
-
-    format="%(asctime)s | %(levelname)s | %(message)s"
-
+from src.analytics.cagr import INSUFFICIENT, calculate_cagr
+from src.analytics.cashflow_kpis import (
+    capex_amount,
+    capex_intensity,
+    capex_label,
+    capital_allocation_pattern,
+    cfo_quality_label,
+    cfo_quality_ratio,
+    fcf_conversion,
+    free_cash_flow,
 )
+from src.analytics.ratios import (
+    asset_turnover,
+    book_value_per_share,
+    composite_quality_score,
+    debt_to_equity,
+    earnings_per_share,
+    high_leverage_flag,
+    icr_label,
+    interest_coverage_ratio,
+    interest_risk_flag,
+    net_profit_margin,
+    operating_profit_margin,
+    return_on_assets,
+    return_on_capital_employed,
+    return_on_equity,
+)
+from src.etl.config import DATABASE, OUTPUT
+
+EDGE_CASE_LOG = OUTPUT / "ratio_edge_cases.log"
 
 logger = logging.getLogger(__name__)
 
+CAGR_WINDOWS = (3, 5, 10)
 
-def get_connection():
-    return sqlite3.connect(DATABASE_PATH)
+
+def _num(value):
+    """NaN/None -> None so ratio functions never see NaN."""
+    return None if value is None or pd.isna(value) else float(value)
+
 
 class DatabaseManager:
 
-    def __init__(self, db_path=DATABASE_PATH):
+    def __init__(self, db_path=DATABASE):
 
         self.conn = sqlite3.connect(db_path)
 
@@ -47,106 +65,34 @@ class DatabaseManager:
 
     def load_tables(self):
 
+        q = lambda sql: pd.read_sql(sql, self.conn)  # noqa: E731
+
         return {
-
-            "companies":
-
-            pd.read_sql(
-                "SELECT * FROM companies",
-                self.conn
+            "companies": q(
+                "SELECT id AS company_id, face_value, roe_percentage, roce_percentage, broad_sector FROM companies"
             ),
-
-            "profit":
-
-            pd.read_sql(
-                "SELECT * FROM profitandloss",
-                self.conn
-            ),
-
-            "balance":
-
-            pd.read_sql(
-                "SELECT * FROM balancesheet",
-                self.conn
-            ),
-
-            "cash":
-
-            pd.read_sql(
-                "SELECT * FROM cashflow",
-                self.conn
-            )
-
+            "profit": q("SELECT * FROM profitandloss").drop(columns="id"),
+            "balance": q("SELECT * FROM balancesheet").drop(columns="id"),
+            "cash": q("SELECT * FROM cashflow").drop(columns="id"),
         }
-    
+
+
 class DataPreprocessor:
 
     @staticmethod
     def merge_tables(data):
 
-        df = data["profit"]
-
-        df = df.merge(
-
-            data["balance"],
-
-            on=["company_id", "year"],
-
-            how="inner"
-
+        # P&L drives the row set; balance sheet / cash flow can be missing for
+        # some years and must not silently drop the whole company-year.
+        df = (
+            data["profit"]
+            .merge(data["balance"], on=["company_id", "year"], how="left")
+            .merge(data["cash"], on=["company_id", "year"], how="left")
+            .merge(data["companies"], on="company_id", how="left")
         )
 
-        df = df.merge(
+        return df.sort_values(["company_id", "year"]).reset_index(drop=True)
 
-            data["cash"],
-
-            on=["company_id", "year"],
-
-            how="inner"
-
-        )
-
-        df = df.merge(
-
-            data["companies"],
-
-            left_on="company_id",
-
-            right_on="id",
-
-            how="left"
-
-        )
-
-        numeric_columns = [
-            "sales",
-            "operating_profit",
-            "other_income",
-            "interest",
-            "net_profit",
-            "equity_capital",
-            "reserves",
-            "borrowings",
-            "investments",
-            "total_assets",
-            "operating_activity",
-            "investing_activity",
-            "financing_activity"
-        ]
-
-        for col in numeric_columns:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors="coerce")
-
-        df = df.sort_values(
-            ["company_id", "year"]
-        ).reset_index(drop=True)
-
-        return df
-    
-# ---------------------------------------------------------
-# Ratio Calculator
-# ---------------------------------------------------------
 
 class RatioCalculator:
 
@@ -155,321 +101,154 @@ class RatioCalculator:
 
         records = []
 
-        for _, row in df.iterrows():
+        for row in df.to_dict("records"):
 
-            npm = net_profit_margin(
-                row["net_profit"],
-                row["sales"]
-            )
+            r = {k: v if isinstance(v, str) else _num(v) for k, v in row.items()}
 
-            opm = operating_profit_margin(
-                row["operating_profit"],
-                row["sales"]
-            )
+            # Source balance sheets for a few companies (BEL, HAL, INDIGO, LT) are
+            # implausible: total assets <20% of sales (real companies here are >=40%). Ratios built
+            # on them (ROE in the 1000s of %) are dropped rather than reported.
+            if r.get("total_assets") is not None and r.get("sales") and r["total_assets"] < 0.2 * r["sales"]:
+                logger.warning(
+                    "[BALANCE SHEET] %s %s total_assets=%s vs sales=%s - balance-sheet ratios skipped",
+                    r["company_id"], r["year"], r["total_assets"], r["sales"],
+                )
+                for col in ("equity_capital", "reserves", "borrowings", "total_assets"):
+                    r[col] = None
 
-            roe = return_on_equity(
-                row["net_profit"],
-                row["equity_capital"],
-                row["reserves"]
-            )
+            def has(*cols):
+                return all(r.get(c) is not None for c in cols)
+
+            npm = net_profit_margin(r["net_profit"], r["sales"])
+
+            opm = operating_profit_margin(r["operating_profit"], r["sales"])
+
+            roe = return_on_equity(r["net_profit"], r["equity_capital"], r["reserves"]) \
+                if has("net_profit", "equity_capital", "reserves") else None
 
             roce = return_on_capital_employed(
-                row["operating_profit"],
-                row["interest"],
-                row["equity_capital"],
-                row["reserves"],
-                row["borrowings"]
-            )
+                r["profit_before_tax"], r["interest"], r["equity_capital"], r["reserves"], r["borrowings"]
+            ) if has("profit_before_tax", "interest", "equity_capital", "reserves", "borrowings") else None
 
-            roa = return_on_assets(
-                row["net_profit"],
-                row["total_assets"]
-            )
+            roa = return_on_assets(r["net_profit"], r["total_assets"]) \
+                if has("net_profit", "total_assets") else None
 
-            debt_equity = debt_to_equity(
-                row["borrowings"],
-                row["equity_capital"],
-                row["reserves"]
-            )
+            de = debt_to_equity(r["borrowings"], r["equity_capital"], r["reserves"]) \
+                if has("borrowings", "equity_capital", "reserves") else None
 
-            icr = interest_coverage_ratio(
-                row["operating_profit"],
-                row["other_income"],
-                row["interest"]
-            )
+            icr = interest_coverage_ratio(r["operating_profit"], r["other_income"], r["interest"]) \
+                if has("operating_profit", "other_income", "interest") else None
 
-            turnover = asset_turnover(
-                row["sales"],
-                row["total_assets"]
-            )
+            turnover = asset_turnover(r["sales"], r["total_assets"]) if has("sales", "total_assets") else None
 
-            eps = earnings_per_share(
-                row["net_profit"],
-                row["equity_capital"],
-                row["face_value"]
-            )
+            face_value = r["face_value"] or 10
 
-            bvps = book_value_per_share(
-                row["equity_capital"],
-                row["reserves"],
-                row["face_value"]
-            )
+            eps = earnings_per_share(r["net_profit"], r["equity_capital"], face_value) \
+                if has("net_profit", "equity_capital") else None
 
-            payout = dividend_payout_ratio(
-                row["dividend_payout"],
-                row["net_profit"]
-            )
+            bvps = book_value_per_share(r["equity_capital"], r["reserves"], face_value) \
+                if has("equity_capital", "reserves") else None
 
-            quality = composite_quality_score(
-                roe,
-                roce,
-                npm,
-                debt_equity,
-                icr,
-                turnover
-            )
+            # dividend_payout in the source is already a percentage of profit.
+            # Negative values (e.g. -999) are placeholders for "not available".
+            payout = r["dividend_payout"]
+            payout = payout if payout is not None and payout >= 0 else None
 
             records.append({
-
-                **row.to_dict(),
-
+                **row,
                 "net_profit_margin_pct": npm,
-
                 "operating_profit_margin_pct": opm,
-
                 "return_on_equity_pct": roe,
-
                 "return_on_capital_employed_pct": roce,
-
                 "return_on_assets_pct": roa,
-
-                "debt_to_equity": debt_equity,
-
+                "debt_to_equity": de,
                 "interest_coverage": icr,
-
+                "icr_label": icr_label(r["interest"], icr) if r["interest"] is not None else None,
                 "asset_turnover": turnover,
-
                 "earnings_per_share": eps,
-
                 "book_value_per_share": bvps,
-
                 "dividend_payout_ratio_pct": payout,
-
-                "composite_quality_score": quality,
-
-                "high_leverage_flag": int(
-                    high_leverage_flag(
-                        debt_equity,
-                        None
-                    )
-                ),
-
-                "interest_risk_flag": int(
-                    interest_risk_flag(
-                        icr
-                    )
-                )
-
+                "total_debt_cr": r["borrowings"],
+                "composite_quality_score": composite_quality_score(roe, roce, npm, de, icr, turnover),
+                # banks / NBFCs run high D/E by design, so Financial Services is exempt
+                "high_leverage_flag": int(high_leverage_flag(de, r.get("broad_sector"))),
+                "interest_risk_flag": int(interest_risk_flag(icr)),
             })
 
         return pd.DataFrame(records)
-    
-# ---------------------------------------------------------
-# CAGR Calculator
-# ---------------------------------------------------------
+
 
 class CAGRCalculator:
-        @staticmethod
-        def _compute_window(series, years):
 
-            values = []
+    SERIES = {"revenue": "sales", "pat": "net_profit", "eps": "eps"}
 
-            flags = []
+    @staticmethod
+    def compute(df: pd.DataFrame) -> pd.DataFrame:
+        """CAGR over N *calendar* years (looked up by year, not by row
+        position, so gaps in the history don't produce wrong windows)."""
 
-            for i in range(len(series)):
+        result = []
 
-                if i < years:
+        for _, group in df.groupby("company_id", sort=False):
 
-                    values.append(None)
+            group = group.sort_values("year").copy()
 
-                    flags.append(INSUFFICIENT)
+            for prefix, col in CAGRCalculator.SERIES.items():
 
-                    continue
+                by_year = dict(zip(group["year"], group[col]))
 
-                start = series.iloc[i - years]
+                for window in CAGR_WINDOWS:
 
-                end = series.iloc[i]
+                    values, flags = [], []
 
-                cagr, flag = calculate_cagr(
-                    start,
-                    end,
-                    years
-                )
+                    for year, end in zip(group["year"], group[col]):
 
-                values.append(cagr)
+                        if year - window not in by_year:
+                            values.append(None)
+                            flags.append(INSUFFICIENT)
+                            continue
 
-                flags.append(flag)
+                        value, flag = calculate_cagr(by_year[year - window], end, window)
+                        values.append(value)
+                        flags.append(flag)
 
-            return values, flags
-        
-        @staticmethod
-        def compute(df: pd.DataFrame):
+                    group[f"{prefix}_cagr_{window}yr"] = values
+                    group[f"{prefix}_cagr_{window}yr_flag"] = flags
 
-            result = []
+            result.append(group)
 
-            for company_id, group in df.groupby("company_id"):
+        return pd.concat(result, ignore_index=True)
 
-                group = group.sort_values("year").copy()
-                
-                for window in [3, 5, 10]:
-
-                    values, flags = CAGRCalculator._compute_window(
-                        group["sales"],
-                        window
-                    )
-
-                    group[
-                        f"revenue_cagr_{window}yr"
-                    ] = values
-
-                    group[
-                        f"revenue_cagr_{window}yr_flag"
-                    ] = flags
-
-                for window in [3, 5, 10]:
-
-                    values, flags = CAGRCalculator._compute_window(
-                        group["net_profit"],
-                        window
-                    )
-
-                    group[
-                        f"pat_cagr_{window}yr"
-                    ] = values
-
-                    group[
-                        f"pat_cagr_{window}yr_flag"
-                    ] = flags
-
-                for window in [3, 5, 10]:
-
-                    values, flags = CAGRCalculator._compute_window(
-                        group["eps"],
-                        window
-                    )
-
-                    group[
-                        f"eps_cagr_{window}yr"
-                    ] = values
-
-                    group[
-                        f"eps_cagr_{window}yr_flag"
-                    ] = flags
-
-                result.append(group)
-                return pd.concat(
-                        result,
-                        ignore_index=True
-                    )
-
-# ---------------------------------------------------------
-# Cash Flow Calculator
-# ---------------------------------------------------------
 
 class CashFlowCalculator:
 
     @staticmethod
     def compute(df: pd.DataFrame) -> pd.DataFrame:
 
-        records = []
+        df = df.copy()
 
-        for _, row in df.iterrows():
+        cfo = df["operating_activity"].map(_num)
+        cfi = df["investing_activity"].map(_num)
+        cff = df["financing_activity"].map(_num)
 
-            # -------------------------------------------------
-            # Free Cash Flow
-            # -------------------------------------------------
+        fcf = [free_cash_flow(o, i) for o, i in zip(cfo, cfi)]
+        cfo_ratio = [cfo_quality_ratio(o, p) for o, p in zip(cfo, df["net_profit"].map(_num))]
 
-            fcf = free_cash_flow(
-                row["operating_activity"],
-                row["investing_activity"]
-            )
+        df["free_cash_flow_cr"] = fcf
+        df["cash_from_operations_cr"] = cfo
+        df["capex_cr"] = cfi.map(capex_amount)
+        df["fcf_conversion_pct"] = [fcf_conversion(f, op) for f, op in zip(fcf, df["operating_profit"].map(_num))]
+        df["cfo_quality_ratio"] = cfo_ratio
+        df["cfo_quality_label"] = [cfo_quality_label(x) for x in cfo_ratio]
+        df["capital_allocation_pattern"] = [
+            capital_allocation_pattern(o, i, f, q) for o, i, f, q in zip(cfo, cfi, cff, cfo_ratio)
+        ]
+        df["capex_category"] = [
+            capex_label(capex_intensity(i, s)) for i, s in zip(cfi, df["sales"].map(_num))
+        ]
 
-            # -------------------------------------------------
-            # CFO Quality
-            # -------------------------------------------------
+        return df
 
-            cfo_ratio = cfo_quality_ratio(
-                row["operating_activity"],
-                row["net_profit"]
-            )
-
-            cfo_label = cfo_quality_label(
-                cfo_ratio
-            )
-
-            # -------------------------------------------------
-            # CapEx Intensity
-            # -------------------------------------------------
-
-            capex = capex_intensity(
-                row["investing_activity"],
-                row["sales"]
-            )
-
-            capex_type = capex_label(
-                capex
-            )
-
-            # -------------------------------------------------
-            # FCF Conversion
-            # -------------------------------------------------
-
-            fcf_conv = fcf_conversion(
-                fcf,
-                row["operating_profit"]
-            )
-
-            # -------------------------------------------------
-            # Capital Allocation Pattern
-            # -------------------------------------------------
-
-            pattern = capital_allocation_pattern(
-                row["operating_activity"],
-                row["investing_activity"],
-                row["financing_activity"],
-                cfo_ratio
-            )
-
-            # -------------------------------------------------
-            # Store
-            # -------------------------------------------------
-
-            temp = row.to_dict()
-
-            temp["free_cash_flow_cr"] = fcf
-
-            temp["cash_from_operations_cr"] = \
-                row["operating_activity"]
-
-            temp["capex_cr"] = capex
-
-            temp["fcf_conversion_pct"] = fcf_conv
-
-            temp["cfo_quality_ratio"] = cfo_ratio
-
-            temp["cfo_quality_label"] = cfo_label
-
-            temp["capital_allocation_pattern"] = pattern
-
-            temp["capex_category"] = capex_type
-
-            records.append(temp)
-
-        return pd.DataFrame(records)
-    
-# ---------------------------------------------------------
-# SQLite Writer
-# ---------------------------------------------------------
 
 class SQLiteWriter:
 
@@ -477,407 +256,104 @@ class SQLiteWriter:
 
         self.conn = conn
 
-        self.cursor = conn.cursor()
+    def table_columns(self):
 
-    # -----------------------------------------------------
+        cols = [r[1] for r in self.conn.execute("PRAGMA table_info('financial_ratios')")]
 
-    def clear_table(self):
+        if not cols:
+            raise RuntimeError(
+                "financial_ratios table is missing - run `python -m src.etl.load_database` first."
+            )
 
-        """
-        Removes previous ratio records while
-        preserving schema, indexes and FK.
-        """
-
-        self.cursor.execute(
-            "DELETE FROM financial_ratios"
-        )
-
-        self.conn.commit()
-
-    # -----------------------------------------------------
-
-    def enable_foreign_keys(self):
-
-        self.cursor.execute(
-            "PRAGMA foreign_keys = ON;"
-        )
-
-    # -----------------------------------------------------
+        return cols
 
     def save(self, df: pd.DataFrame):
+        """Replace the contents of financial_ratios (schema, indexes and FKs are kept)."""
 
-        """
-        Insert dataframe into financial_ratios.
-        """
+        cols = self.table_columns()
 
-        self.enable_foreign_keys()
+        self.conn.execute("PRAGMA foreign_keys = ON")
 
         try:
+            self.conn.execute("DELETE FROM financial_ratios")
 
-            self.clear_table()
-
-            df.to_sql(
-
-                "financial_ratios",
-
-                self.conn,
-
-                if_exists="append",
-
-                index=False
-
-            )
+            df.reindex(columns=cols).to_sql("financial_ratios", self.conn, if_exists="append", index=False)
 
             self.conn.commit()
 
-            logger.info(
-                "financial_ratios inserted successfully."
-            )
-
-            logger.info(
-                f"Rows inserted : {len(df)}"
-            )
-
-        except Exception as e:
-
+        except Exception:
             self.conn.rollback()
-
-            logger.exception(e)
-
             raise
 
-    # -----------------------------------------------------
+        logger.info("financial_ratios rows inserted: %d", len(df))
 
     def verify(self):
 
-        query = """
-        SELECT COUNT(*)
-        FROM financial_ratios
-        """
+        count = self.conn.execute("SELECT COUNT(*) FROM financial_ratios").fetchone()[0]
 
-        count = pd.read_sql(
-            query,
-            self.conn
-        ).iloc[0, 0]
-
-        logger.info(
-            f"financial_ratios row count = {count}"
-        )
+        logger.info("financial_ratios row count = %d", count)
 
         return count
 
-    # -----------------------------------------------------
-
     def foreign_key_check(self):
 
-        result = pd.read_sql(
+        result = pd.read_sql("PRAGMA foreign_key_check;", self.conn)
 
-            "PRAGMA foreign_key_check;",
-
-            self.conn
-
-        )
-
-        if len(result) == 0:
-
-            logger.info(
-                "Foreign key check PASSED."
-            )
-
+        if len(result):
+            logger.warning("Foreign key violations detected: %d", len(result))
         else:
-
-            logger.warning(
-                "Foreign key violations detected."
-            )
+            logger.info("Foreign key check PASSED.")
 
         return result
-    
-# ---------------------------------------------------------
-# Report Generator
-# ---------------------------------------------------------
+
+    def vacuum(self):
+
+        self.conn.execute("VACUUM")
+
 
 class ReportGenerator:
 
     def __init__(self):
 
-        self.output_dir = OUTPUT_DIR
+        self.output_dir = OUTPUT
 
-        self.edge_case_log = EDGE_CASE_LOG
+    def generate_capital_allocation(self, df):
 
-    def generate_capital_allocation(self, df: pd.DataFrame):
+        cols = [c for c in ["company_id", "year", "capital_allocation_pattern"] if c in df.columns]
 
-            cols = [
+        df[cols].to_csv(self.output_dir / "capital_allocation.csv", index=False)
 
-                "company_id",
+    def check_ratio_mismatch(self, df):
+        """Compare the latest computed ROE/ROCE with the values quoted in companies."""
 
-                "year",
+        logger.info("----- Ratio Cross Check (latest year vs companies sheet) -----")
 
-                "capital_allocation_pattern"
+        latest = df.loc[df.groupby("company_id")["year"].idxmax()]
 
-            ]
+        for src_col, calc_col, label in [
+            ("roe_percentage", "return_on_equity_pct", "ROE"),
+            ("roce_percentage", "return_on_capital_employed_pct", "ROCE"),
+        ]:
+            diff = (latest[src_col] - latest[calc_col]).abs()
 
-            available = [
-
-                c for c in cols
-
-                if c in df.columns
-
-            ]
-
-            out = df[available].copy()
-
-            out.to_csv(
-
-                self.output_dir /
-
-                "capital_allocation.csv",
-
-                index=False
-
-            )
-
-            logger.info(
-
-                "capital_allocation.csv generated."
-
-            )
-        
-    def check_ratio_mismatch(
-
-                self,
-
-                df: pd.DataFrame
-
-            ):
-
-                logger.info(
-
-                    "----- Ratio Cross Check -----"
-
+            for _, row in latest[diff > 5].iterrows():
+                logger.warning(
+                    "[%s] %s %s quoted=%s computed=%s",
+                    label, row["company_id"], row["year"], row[src_col], row[calc_col],
                 )
 
-                for _, row in df.iterrows():
+    def check_cagr_flags(self, df):
 
-                    if (
+        logger.info("----- CAGR Flags -----")
 
-                        "roe_percentage" in df.columns
+        flag_cols = [c for c in df.columns if c.endswith("_flag") and "cagr" in c]
 
-                        and
+        counts = df[flag_cols].stack().value_counts()
 
-                        pd.notna(row["roe_percentage"])
+        for flag, n in counts.items():
+            logger.info("%s: %d", flag, n)
 
-                        and
-
-                        pd.notna(row["return_on_equity_pct"])
-
-                    ):
-
-                        diff = abs(
-
-                            row["roe_percentage"]
-
-                            -
-
-                            row["return_on_equity_pct"]
-
-                        )
-
-                        if diff > 5:
-
-                            logger.warning(
-
-                                f"[ROE] "
-
-                                f"{row['company_id']} "
-
-                                f"{row['year']} "
-
-                                f"Difference={diff:.2f}"
-
-                            )
-
-                    if (
-
-                        "roce_percentage" in df.columns
-
-                        and
-
-                        pd.notna(row["roce_percentage"])
-
-                        and
-
-                        pd.notna(row["return_on_capital_employed_pct"])
-
-                    ):
-
-                        diff = abs(
-
-                            row["roce_percentage"]
-
-                            -
-
-                            row["return_on_capital_employed_pct"]
-
-                        )
-
-                        if diff > 5:
-
-                            logger.warning(
-
-                                f"[ROCE] "
-
-                                f"{row['company_id']} "
-
-                                f"{row['year']} "
-
-                                f"Difference={diff:.2f}"
-
-                            )
-    def check_cagr_flags(
-
-        self,
-
-        df: pd.DataFrame
-
-    ):
-
-        logger.info(
-
-            "----- CAGR Flags -----"
-
-        )
-
-        flag_columns = [
-
-            c
-
-            for c in df.columns
-
-            if c.endswith("_flag")
-
-        ]
-
-        for _, row in df.iterrows():
-
-            for col in flag_columns:
-
-                value = row[col]
-
-                if (
-
-                    pd.notna(value)
-
-                    and
-
-                    value != "NORMAL"
-
-                ):
-
-                    logger.info(
-
-                        f"{row['company_id']} "
-
-                        f"{row['year']} "
-
-                        f"{col} "
-
-                        f"{value}"
-
-                    )
-    def high_leverage_report(
-
-            self,
-
-            df: pd.DataFrame
-
-        ):
-
-            if "high_leverage_flag" not in df.columns:
-
-                return
-
-            risky = df[
-
-                df["high_leverage_flag"] == 1
-
-            ]
-
-            logger.info(
-
-                f"High leverage companies : "
-
-                f"{len(risky)}"
-
-            )
-    def interest_risk_report(
-
-        self,
-
-        df: pd.DataFrame
-
-    ):
-
-        if "interest_risk_flag" not in df.columns:
-
-            return
-
-        risky = df[
-
-            df["interest_risk_flag"] == 1
-
-        ]
-
-        logger.info(
-
-            f"Interest risk companies : "
-
-            f"{len(risky)}"
-
-        )
-    def missing_values_report(
-
-        self,
-
-        df: pd.DataFrame
-
-    ):
-
-        logger.info(
-
-            "----- Missing Values -----"
-
-        )
-
-        missing = (
-
-            df.isna()
-
-            .sum()
-
-            .sort_values(
-
-                ascending=False
-
-            )
-
-        )
-
-        for col, cnt in missing.items():
-
-            if cnt > 0:
-
-                logger.info(
-
-                    f"{col}: {cnt}"
-
-                )  
-    def generate(
-
-        self,
-
-        df: pd.DataFrame
-
-    ):
+    def generate(self, df):
 
         self.generate_capital_allocation(df)
 
@@ -885,150 +361,67 @@ class ReportGenerator:
 
         self.check_cagr_flags(df)
 
-        self.high_leverage_report(df)
+        logger.info("High leverage rows: %d", int(df["high_leverage_flag"].sum()))
 
-        self.interest_risk_report(df)
+        logger.info("Interest risk rows: %d", int(df["interest_risk_flag"].sum()))
 
-        self.missing_values_report(df)
+        logger.info("----- Missing Values -----")
 
-        logger.info(
-
-            "Report generation complete."
-
-        )                      
+        for col, cnt in df.isna().sum().items():
+            if cnt:
+                logger.info("%s: %d", col, cnt)
 
 
+def build_ratios(db_path=DATABASE) -> pd.DataFrame:
 
-# ---------------------------------------------------------
-# Main Pipeline
-# ---------------------------------------------------------
-
-def main():
-
-    logger.info("=" * 60)
-    logger.info("Starting Financial Ratio Engine")
-    logger.info("=" * 60)
-
-    db = DatabaseManager()
+    db = DatabaseManager(db_path)
 
     try:
+        merged = DataPreprocessor.merge_tables(db.load_tables())
 
-        # -------------------------------------------------
-        # Load Data
-        # -------------------------------------------------
+        ratio_df = RatioCalculator.compute_basic_ratios(merged)
 
-        logger.info("Loading database tables...")
+        ratio_df = CAGRCalculator.compute(ratio_df)
 
-        data = db.load_tables()
+        ratio_df = CashFlowCalculator.compute(ratio_df)
 
-        # -------------------------------------------------
-        # Merge Tables
-        # -------------------------------------------------
+        writer = SQLiteWriter(db.conn)
 
-        logger.info("Merging financial tables...")
-
-        merged_df = DataPreprocessor.merge_tables(data)
-
-        logger.info(
-            f"Merged rows : {len(merged_df)}"
-        )
-
-        # -------------------------------------------------
-        # Basic Ratios
-        # -------------------------------------------------
-
-        logger.info(
-            "Computing profitability & leverage ratios..."
-        )
-
-        ratio_df = RatioCalculator.compute_basic_ratios(
-            merged_df
-        )
-
-        # -------------------------------------------------
-        # CAGR
-        # -------------------------------------------------
-
-        logger.info(
-            "Computing CAGR metrics..."
-        )
-
-        ratio_df = CAGRCalculator.compute(
-            ratio_df
-        )
-
-        # -------------------------------------------------
-        # Cashflow KPIs
-        # -------------------------------------------------
-
-        logger.info(
-            "Computing cashflow KPIs..."
-        )
-
-        ratio_df = CashFlowCalculator.compute(
-            ratio_df
-        )
-
-        # -------------------------------------------------
-        # SQLite
-        # -------------------------------------------------
-
-        logger.info(
-            "Writing financial_ratios table..."
-        )
-
-        writer = SQLiteWriter(
-            db.conn
-        )
-
-        writer.save(
-            ratio_df
-        )
+        writer.save(ratio_df)
 
         rows = writer.verify()
 
-        writer.foreign_key_check()
+        fk = writer.foreign_key_check()
 
         writer.vacuum()
 
-        # -------------------------------------------------
-        # Reports
-        # -------------------------------------------------
-
-        logger.info(
-            "Generating reports..."
-        )
-
-        ReportGenerator().generate(
-            ratio_df
-        )
-
-        logger.info("=" * 60)
-        logger.info("Ratio Engine Completed Successfully")
-        logger.info(f"Rows written : {rows}")
-        logger.info("=" * 60)
-
-        print()
-
-        print("=" * 60)
-        print("Financial Ratio Engine Completed")
-        print(f"Rows inserted : {rows}")
-        print("Database Updated Successfully")
-        print("=" * 60)
-
-    except Exception as e:
-
-        logger.exception(e)
-
-        print()
-
-        print("Ratio Engine Failed.")
-
-        print(e)
-
     finally:
-
         db.close()
+
+    return ratio_df, rows, fk
+
+
+def main():
+
+    OUTPUT.mkdir(exist_ok=True)
+
+    logging.basicConfig(
+        filename=EDGE_CASE_LOG,
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(message)s",
+    )
+
+    logger.info("Starting Financial Ratio Engine")
+
+    ratio_df, rows, fk = build_ratios()
+
+    ReportGenerator().generate(ratio_df)
+
+    print("=" * 60)
+    print("Financial Ratio Engine Completed")
+    print(f"Rows inserted : {rows}")
+    print(f"FK violations : {len(fk)}")
+    print("=" * 60)
 
 
 if __name__ == "__main__":

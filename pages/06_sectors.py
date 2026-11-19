@@ -1,49 +1,47 @@
-import streamlit as st
 import plotly.express as px
+import streamlit as st
 
-from src.dashboard.utils.db import *
+from src.dashboard.utils.db import get_companies, get_latest_ratios
 
 st.title("Sector Analysis")
 
 companies = get_companies()
 
-ratios = get_ratios()
+if "broad_sector" not in companies.columns or companies["broad_sector"].isna().all():
 
-df = companies.merge(
-    ratios,
-    left_on="id",
-    right_on="company_id",
-    how="left"
-)
+    st.info(
+        "Sector analysis needs sector data. Run `python -m src.etl.market_data` "
+        "then `python -m src.etl.load_database`."
+    )
 
-sector = st.selectbox(
-    "Sector",
-    sorted(df["broad_sector"].dropna().unique())
-)
+    st.stop()
 
-temp = df[
-    df["broad_sector"] == sector
-]
+df = companies.merge(get_latest_ratios(), left_on="id", right_on="company_id", how="left")
 
-fig = px.scatter(
+sector = st.selectbox("Sector", sorted(df["broad_sector"].dropna().unique()))
 
-    temp,
-
-    x="sales",
-
-    y="return_on_equity_pct",
-
-    size="market_cap",
-
-    color="sub_sector",
-
-    hover_name="company_id"
-
-)
+temp = df[df["broad_sector"] == sector]
 
 st.plotly_chart(
-    fig,
-    use_container_width=True
+
+    px.scatter(
+
+        temp,
+
+        x="sales",
+
+        y="return_on_equity_pct",
+
+        size=temp["market_cap_cr"].fillna(0) if "market_cap_cr" in temp.columns else None,
+
+        color="sub_sector" if "sub_sector" in temp.columns else None,
+
+        hover_name="company_id"
+
+    ),
+
+    width="stretch"
+
 )
 
 st.subheader("Sector Data")

@@ -1,13 +1,13 @@
-
 import pandas as pd
 
-from normaliser import (
-    normalize_columns
-)
+from src.etl.config import COMPANIES_FILE
+from src.etl.normaliser import normalize_columns
+
 
 def load_excel(path, header=1):
+    """Read a raw workbook. Row 0 is a title banner, so headers are on row 1."""
 
-    df = pd.read_excel(path, header = header)
+    df = pd.read_excel(path, header=header)
 
     df = normalize_columns(df)
 
@@ -16,9 +16,7 @@ def load_excel(path, header=1):
 
 if __name__ == "__main__":
 
-    df = load_excel(r"C:\\Users\\Asus\\OneDrive\\Desktop\\Bluestock_intern\\Bluestock-sprint-1\\data\\raw\\companies.xlsx")
-
-    df = df.fillna("")
+    df = load_excel(COMPANIES_FILE)
 
     print(df.head())
 

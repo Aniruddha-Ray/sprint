@@ -1,50 +1,34 @@
 import streamlit as st
 
-from src.dashboard.utils.db import *
+from src.dashboard.utils.db import get_latest_ratios
 
 st.title("Stock Screener")
 
-df = get_ratios()
+df = get_latest_ratios()  # one row per company
 
-roe = st.sidebar.slider(
-    "ROE",
-    0,
-    50,
-    15
-)
+roe = st.sidebar.slider("ROE", 0, 50, 15)
 
-de = st.sidebar.slider(
-    "D/E",
-    0.0,
-    5.0,
-    1.0
-)
+de = st.sidebar.slider("D/E", 0.0, 5.0, 1.0)
 
 out = df[
 
-    (df["return_on_equity_pct"]>=roe)
+    (df["return_on_equity_pct"] >= roe)
 
     &
 
-    (df["debt_to_equity"]<=de)
+    (df["debt_to_equity"] <= de)
 
 ]
 
-st.write(
-    f"{len(out)} Companies"
-)
+st.write(f"{len(out)} Companies")
 
 st.dataframe(out)
-
-csv = out.to_csv(
-    index=False
-)
 
 st.download_button(
 
     "Download CSV",
 
-    csv,
+    out.to_csv(index=False),
 
     "screener.csv",
 

@@ -1,3 +1,4 @@
+from src.etl.config import DATABASE
 import os
 import sqlite3
 
@@ -14,7 +15,7 @@ class PortfolioReport:
     def __init__(self):
 
         self.conn = sqlite3.connect(
-            "db/nifty100.db"
+            str(DATABASE)
         )
 
         os.makedirs(
@@ -92,7 +93,7 @@ class PortfolioReport:
 
                 Paragraph(
 
-                    f"Sector : {row['broad_sector']}",
+                    f"Sector : {row.get('broad_sector', 'N/A')}",
 
                     styles["BodyText"]
 

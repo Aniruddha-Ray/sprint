@@ -1,10 +1,11 @@
+from src.etl.config import DATABASE
 import sqlite3
 import pandas as pd
 
 
 class PeerEngine:
 
-    def __init__(self, db_path="db/nifty100.db"):
+    def __init__(self, db_path=str(DATABASE)):
 
         self.conn = sqlite3.connect(db_path)
 
@@ -76,7 +77,7 @@ class PeerEngine:
                     1 -
 
                     temp.groupby(
-                        "peer_group_name"
+                        ["peer_group_name", "year"]  # rank peers within the same year
                     )[metric]
 
                     .rank(pct=True)
@@ -88,7 +89,7 @@ class PeerEngine:
                 temp["percentile_rank"] = (
 
                     temp.groupby(
-                        "peer_group_name"
+                        ["peer_group_name", "year"]
                     )[metric]
 
                     .rank(pct=True)

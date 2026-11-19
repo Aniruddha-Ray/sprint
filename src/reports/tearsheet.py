@@ -1,6 +1,9 @@
+from src.etl.config import DATABASE
 import os
 import sqlite3
 
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 
@@ -14,7 +17,7 @@ class TearSheetGenerator:
     def __init__(self):
 
         self.conn = sqlite3.connect(
-            "db/nifty100.db"
+            str(DATABASE)
         )
 
         os.makedirs(
@@ -31,7 +34,12 @@ class TearSheetGenerator:
 
         ratios = pd.read_sql(
 
-            "SELECT * FROM financial_ratios",
+            # sales / net_profit live in profitandloss, not financial_ratios
+            """
+            SELECT f.*, p.sales, p.net_profit
+            FROM financial_ratios f
+            LEFT JOIN profitandloss p USING (company_id, year)
+            """,
 
             self.conn
 

@@ -1,72 +1,45 @@
 import sqlite3
+
 import pandas as pd
 
-conn = sqlite3.connect("C:\\Users\\Asus\\OneDrive\\Desktop\\Bluestock_intern\\Bluestock-sprint-1\\db\\nifty100.db")
+from src.etl.config import DATABASE, OUTPUT, TABLE_SOURCES
 
-tables = [
-    "companies",
-    "profitandloss",
-    "balancesheet",
-    "cashflow",
-    "analysis",
-    "documents",
-    "prosandcons"
-]
-
-for table in tables:
-
-    rows = pd.read_sql(
-        f"SELECT COUNT(*) AS count FROM {table}",
-        conn
-    )
-
-    print(table, rows.iloc[0]["count"])
+TABLES = list(TABLE_SOURCES)
 
 
-fk = pd.read_sql(
-    "PRAGMA foreign_key_check;",
-    conn
-)
+def verify(db_path=DATABASE):
 
-print(fk)
+    conn = sqlite3.connect(db_path)
 
+    try:
+        summary = pd.DataFrame([
+            {
+                "table": table,
+                "rows": conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0],
+            }
+            for table in TABLES
+        ])
 
-for table in tables:
+        fk = pd.read_sql("PRAGMA foreign_key_check;", conn)
 
-    print("\n", "="*50)
+        for table in TABLES:
+            print("\n", "=" * 50)
+            print(table.upper())
+            print(pd.read_sql(f"SELECT * FROM {table} LIMIT 5", conn))
 
-    print(table.upper())
+    finally:
+        conn.close()
 
-    df = pd.read_sql(
-        f"SELECT * FROM {table} LIMIT 5",
-        conn
-    )
+    OUTPUT.mkdir(exist_ok=True)
 
-    print(df)
+    summary.to_csv(OUTPUT / "database_summary.csv", index=False)
 
+    print("\nForeign key violations:", len(fk))
 
-summary = []
+    print(summary)
 
-for table in tables:
-
-    rows = pd.read_sql(
-        f"SELECT COUNT(*) AS count FROM {table}",
-        conn
-    ).iloc[0]["count"]
-
-    summary.append({
-        "table": table,
-        "rows": rows
-    })
-
-summary = pd.DataFrame(summary)
-
-summary.to_csv(
-    "C:\\Users\\Asus\\OneDrive\\Desktop\\Bluestock_intern\\Bluestock-sprint-1\\output\\database_summary.csv",
-    index=False
-)
-
-print(summary)
+    return summary, fk
 
 
-conn.close()
+if __name__ == "__main__":
+    verify()

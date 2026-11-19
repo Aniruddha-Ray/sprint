@@ -148,7 +148,7 @@ def return_on_equity(
 
 
 def return_on_capital_employed(
-    operating_profit: float,
+    profit_before_tax: float,
     interest: float,
     equity_capital: float,
     reserves: float,
@@ -163,7 +163,10 @@ def return_on_capital_employed(
 
     Capital Employed
 
-    EBIT = Operating Profit + Interest
+    EBIT = Profit Before Tax + Interest
+
+    (Operating profit in this dataset is already *before* interest and
+    depreciation, so adding interest to it would double-count.)
     """
 
     capital = (
@@ -175,7 +178,7 @@ def return_on_capital_employed(
     if capital <= 0:
         return None
 
-    ebit = operating_profit + interest
+    ebit = profit_before_tax + interest
 
     return round(
         ebit / capital * 100,
@@ -249,7 +252,7 @@ def high_leverage_flag(
         return False
 
     if broad_sector is not None:
-        if broad_sector.lower() == "financials":
+        if broad_sector.lower() in ("financials", "financial services"):
             return False
 
     return debt_to_equity_ratio > 5
@@ -604,7 +607,7 @@ if __name__ == "__main__":
     print("ROE:", roe)
 
     roce = return_on_capital_employed(
-        operating_profit=1800,
+        profit_before_tax=1500,
         interest=120,
         equity_capital=800,
         reserves=4200,

@@ -1,4 +1,6 @@
-PRAGMA foreign_keys = ON;
+-- Foreign keys are switched OFF while (re)building, otherwise dropping
+-- `companies` fails once child tables hold rows. Loaders turn them back ON.
+PRAGMA foreign_keys = OFF;
 
 ----------------------------------------------------
 -- Companies
@@ -30,7 +32,14 @@ CREATE TABLE companies (
 
     roce_percentage REAL,
 
-    roe_percentage REAL
+    roe_percentage REAL,
+
+    -- filled by src/etl/market_data.py from NSE files
+    nse_symbol TEXT,
+
+    broad_sector TEXT,
+
+    sector_id INTEGER
 
 );
 
@@ -184,9 +193,9 @@ CREATE TABLE documents (
 
     company_id TEXT NOT NULL,
 
-    annual_report TEXT,
+    year INTEGER,
 
-    concall_notes TEXT,
+    annual_report TEXT,
 
     FOREIGN KEY(company_id)
 
@@ -360,19 +369,47 @@ CREATE TABLE sectors (
 
 DROP TABLE IF EXISTS peer_groups;
 
+-- One row per company; peers are the companies sharing peer_group_name
+-- (currently the NSE industry).
 CREATE TABLE peer_groups (
 
-    company_id TEXT,
+    company_id TEXT PRIMARY KEY,
 
-    peer_company_id TEXT,
-
-    PRIMARY KEY(company_id, peer_company_id),
+    peer_group_name TEXT NOT NULL,
 
     FOREIGN KEY(company_id)
 
-    REFERENCES companies(id),
+    REFERENCES companies(id)
 
-    FOREIGN KEY(peer_company_id)
+);
+
+----------------------------------------------------
+-- Market Data (valuation snapshot)
+----------------------------------------------------
+
+DROP TABLE IF EXISTS market_data;
+
+CREATE TABLE market_data (
+
+    company_id TEXT PRIMARY KEY,
+
+    price_date DATE,
+
+    fiscal_year INTEGER,
+
+    close_price REAL,
+
+    shares_cr REAL,
+
+    shares_source TEXT,
+
+    market_cap_cr REAL,
+
+    pe REAL,
+
+    pb REAL,
+
+    FOREIGN KEY(company_id)
 
     REFERENCES companies(id)
 

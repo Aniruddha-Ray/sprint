@@ -1,5 +1,9 @@
 import pandas as pd
 
+from src.etl.config import BALANCE_FILE, COMPANIES_FILE, OUTPUT, PROFIT_FILE
+from src.etl.loader import load_excel
+
+
 class DataValidator:
 
     def __init__(self):
@@ -14,9 +18,10 @@ class DataValidator:
         })
 
     def save_report(self, path):
-        pd.DataFrame(self.failures).to_csv(path, index=False)
+        pd.DataFrame(
+            self.failures, columns=["rule", "severity", "row", "message"]
+        ).to_csv(path, index=False)
 
-    
     def check_primary_key(self, df, column):
 
         duplicates = df[df[column].duplicated()]
@@ -26,26 +31,26 @@ class DataValidator:
                 "DQ-01",
                 "CRITICAL",
                 idx,
-                f"Duplicate {column}"
+                f"Duplicate {column} {df.at[idx, column]}"
             )
 
     def check_company_year(self, df):
 
-        duplicates = df[df.duplicated(["id", "year"])]
+        duplicates = df[df.duplicated(["company_id", "year"])]
 
         for idx in duplicates.index:
             self.add_failure(
                 "DQ-02",
                 "CRITICAL",
                 idx,
-                "Duplicate company-year"
+                f"Duplicate company-year {df.at[idx, 'company_id']} {df.at[idx, 'year']}"
             )
 
     def check_foreign_key(self, child_df, parent_df):
 
         parent = set(parent_df["id"])
 
-        for idx, value in enumerate(child_df["id"]):
+        for idx, value in child_df["company_id"].items():
 
             if value not in parent:
 
@@ -57,6 +62,11 @@ class DataValidator:
                 )
 
     def check_balance_sheet(self, df):
+        """Total assets must equal total liabilities.
+
+        In this dataset total_liabilities already includes equity capital and
+        reserves, so equity must not be added again.
+        """
 
         for idx, row in df.iterrows():
 
@@ -64,12 +74,10 @@ class DataValidator:
 
             liabilities = row["total_liabilities"]
 
-            equity = row["equity_capital"]
-
-            if pd.isna(assets) or pd.isna(liabilities) or pd.isna(equity):
+            if pd.isna(assets) or pd.isna(liabilities):
                 continue
 
-            if abs(assets - (liabilities + equity)) > assets * 0.01:
+            if abs(assets - liabilities) > abs(assets) * 0.01:
 
                 self.add_failure(
                     "DQ-04",
@@ -80,7 +88,7 @@ class DataValidator:
 
     def check_positive_sales(self, df):
 
-        for idx, value in enumerate(df["sales"]):
+        for idx, value in df["sales"].items():
 
             if pd.notna(value) and value <= 0:
 
@@ -92,38 +100,33 @@ class DataValidator:
                 )
 
 
-from loader import load_excel
-from config import (
-    COMPANIES_FILE,
-    PROFIT_FILE,
-    BALANCE_FILE
-)
+def run_validation():
 
-companies_df = load_excel(COMPANIES_FILE, header =1)
-profit_df = load_excel(PROFIT_FILE, header =1)
-balance_df = load_excel(BALANCE_FILE, header =1)
+    companies_df = load_excel(COMPANIES_FILE)
+    profit_df = load_excel(PROFIT_FILE)
+    balance_df = load_excel(BALANCE_FILE)
 
-print("Companies_df:\n", companies_df.head())
-print("Profit_df:\n", profit_df.head())
-print("Balance_df:\n", balance_df.head())
+    validator = DataValidator()
 
-validator = DataValidator()
+    validator.check_primary_key(companies_df, "id")
 
-validator.check_primary_key(companies_df, "id")
+    validator.check_company_year(profit_df)
 
-validator.check_company_year(profit_df)
+    validator.check_foreign_key(profit_df, companies_df)
 
-validator.check_foreign_key(
-    profit_df,
-    companies_df
-)
+    validator.check_balance_sheet(balance_df)
 
-validator.check_balance_sheet(balance_df)
+    validator.check_positive_sales(profit_df)
 
-validator.check_positive_sales(profit_df)
+    OUTPUT.mkdir(exist_ok=True)
 
-validator.save_report(
-    "C:\\Users\\Asus\\OneDrive\\Desktop\\Bluestock_intern\\Bluestock-sprint-1\\output\\validation_failures.csv"
-)
+    validator.save_report(OUTPUT / "validation_failures.csv")
 
-print("Validation Complete")
+    return validator
+
+
+if __name__ == "__main__":
+
+    v = run_validation()
+
+    print(f"Validation Complete: {len(v.failures)} failures")

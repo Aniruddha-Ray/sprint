@@ -1,6 +1,9 @@
+from src.etl.config import DATABASE
 import os
 import sqlite3
 
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -8,7 +11,7 @@ import pandas as pd
 
 class RadarChartGenerator:
 
-    def __init__(self, db_path="db/nifty100.db"):
+    def __init__(self, db_path=str(DATABASE)):
 
         self.conn = sqlite3.connect(db_path)
 
@@ -28,6 +31,11 @@ class RadarChartGenerator:
             "SELECT * FROM peer_groups",
             self.conn
         )
+
+        # one chart per company: use its latest year only
+        ratios = ratios[
+            ratios["year"] == ratios.groupby("company_id")["year"].transform("max")
+        ]
 
         return ratios.merge(
             peers,

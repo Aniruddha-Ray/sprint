@@ -1,0 +1,17 @@
+pandas
+numpy
+openpyxl
+sqlalchemy
+python-dotenv
+pyyaml
+matplotlib
+plotly
+scikit-learn
+reportlab
+streamlit
+fastapi
+uvicorn
+httpx
+pytest
+black
+rich

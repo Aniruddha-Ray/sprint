@@ -1,8 +1,7 @@
+import plotly.express as px
 import streamlit as st
 
-import plotly.express as px
-
-from src.dashboard.utils.db import *
+from src.dashboard.utils.db import get_companies, get_ratios
 
 st.title("Company Profile")
 
@@ -12,73 +11,32 @@ ticker = st.selectbox(
 
     "Company",
 
-    companies["company_id"]
+    companies["id"],
+
+    format_func=lambda t: f"{t} - {companies.set_index('id').at[t, 'company_name']}",
 
 )
 
 ratio = get_ratios()
 
-df = ratio[
-    ratio["company_id"]==ticker
-]
+df = ratio[ratio["company_id"] == ticker]
 
-if len(df)==0:
+if len(df) == 0:
 
-    st.warning("Ticker not found.")
+    st.warning("No financial data for this ticker.")
 
     st.stop()
 
-latest = df.sort_values(
-    "year"
-).iloc[-1]
+latest = df.sort_values("year").iloc[-1]
 
-c1,c2,c3 = st.columns(3)
+c1, c2, c3 = st.columns(3)
 
-c1.metric(
-    "ROE",
-    latest["return_on_equity_pct"]
-)
+c1.metric("ROE", latest["return_on_equity_pct"])
 
-c2.metric(
-    "ROCE",
-    latest["return_on_capital_employed_pct"]
-)
+c2.metric("ROCE", latest["return_on_capital_employed_pct"])
 
-c3.metric(
-    "D/E",
-    latest["debt_to_equity"]
-)
+c3.metric("D/E", latest["debt_to_equity"])
 
-fig = px.line(
+st.plotly_chart(px.line(df, x="year", y="sales", title="Revenue"), width="stretch")
 
-    df,
-
-    x="year",
-
-    y="sales",
-
-    title="Revenue"
-
-)
-
-st.plotly_chart(
-    fig,
-    use_container_width=True
-)
-
-fig = px.line(
-
-    df,
-
-    x="year",
-
-    y="net_profit",
-
-    title="Net Profit"
-
-)
-
-st.plotly_chart(
-    fig,
-    use_container_width=True
-)
+st.plotly_chart(px.line(df, x="year", y="net_profit", title="Net Profit"), width="stretch")

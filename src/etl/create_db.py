@@ -1,15 +1,26 @@
 import sqlite3
 
-connection = sqlite3.connect("C:\\Users\\Asus\\OneDrive\\Desktop\\Bluestock_intern\\Bluestock-sprint-1\\db\\nifty100.db")
+from src.etl.config import DATABASE, SCHEMA
 
-connection.execute("PRAGMA foreign_keys = ON;")
 
-with open("C:\\Users\\Asus\\OneDrive\\Desktop\\Bluestock_intern\\Bluestock-sprint-1\\db\\schema.sql", "r") as schema_sql_file:
+def create_database(db_path=DATABASE, schema_path=SCHEMA):
+    """(Re)create every table from db/schema.sql. Existing data is dropped."""
 
-    connection.executescript(schema_sql_file.read())
+    db_path.parent.mkdir(parents=True, exist_ok=True)
 
-connection.commit()
+    connection = sqlite3.connect(db_path)
 
-connection.close()
+    try:
+        connection.executescript(schema_path.read_text(encoding="utf-8"))
 
-print("Database Created Successfully")
+        connection.commit()
+
+    finally:
+        connection.close()
+
+
+if __name__ == "__main__":
+
+    create_database()
+
+    print(f"Database created: {DATABASE}")

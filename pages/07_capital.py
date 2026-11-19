@@ -1,49 +1,37 @@
-import streamlit as st
 import plotly.express as px
+import streamlit as st
 
-from src.dashboard.utils.db import *
+from src.dashboard.utils.db import get_latest_ratios
 
 st.title("Capital Allocation")
 
-ratios = get_ratios()
+ratios = get_latest_ratios().dropna(subset=["capital_allocation_pattern"])
 
-fig = px.treemap(
-
-    ratios,
-
-    path=["capital_allocation_pattern","company_id"],
-
-    values="free_cash_flow_cr"
-
-)
-
+# Treemap areas can't be negative (FCF often is), so size by company count.
 st.plotly_chart(
-    fig,
-    use_container_width=True
+
+    px.treemap(
+
+        ratios,
+
+        path=["capital_allocation_pattern", "company_id"],
+
+        color="free_cash_flow_cr",
+
+        color_continuous_scale="RdYlGn",
+
+    ),
+
+    width="stretch"
+
 )
 
 pattern = st.selectbox(
 
     "Pattern",
 
-    sorted(
-
-        ratios["capital_allocation_pattern"]
-
-        .dropna()
-
-        .unique()
-
-    )
+    sorted(ratios["capital_allocation_pattern"].unique())
 
 )
 
-st.dataframe(
-
-    ratios[
-
-        ratios["capital_allocation_pattern"]==pattern
-
-    ]
-
-)
+st.dataframe(ratios[ratios["capital_allocation_pattern"] == pattern])
